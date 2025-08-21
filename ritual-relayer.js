@@ -21,7 +21,8 @@ const cors    = require('cors');
 const { ethers } = require('ethers');
 
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+app.use(cors({ origin: allowedOrigin }));
 app.use(express.json());
 
 // Load ABIs.  These are generated from the JSON files in ./public by build-abi.js.
@@ -34,7 +35,7 @@ const signer   = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
 // Construct contract instances
 const gameAddress = process.env.FREAKY_ADDRESS;
-const tokenAddress = process.env.GCC_ADDRESS;
+const tokenAddress = process.env.GCC_TOKEN || process.env.GCC_ADDRESS;
 const gameContract = new ethers.Contract(gameAddress, gameAbi, signer);
 const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, provider);
 
