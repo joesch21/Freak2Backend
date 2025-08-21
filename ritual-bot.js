@@ -1,60 +1,52 @@
-/*
-  ritual-bot.js
+import 'dotenv/config';
+import { ethers } from 'ethers';
 
-  A simple script that checks whether the current round has expired and,
-  if so, calls the on‑chain `checkTimeExpired()` method. It can run once as
-  a cron job or loop periodically as a background worker.
+const {
+  RPC_URL,
+  PRIVATE_KEY,
+  FREAKY_ADDRESS,
+  LOOP_SECONDS = '60',
+  ONE_SHOT,
+} = process.env;
 
-  Usage:
-    node ritual-bot.js
+import abi from './public/freakyFridayGameAbi.json' assert { type: 'json' };
 
-  This script logs to stdout and exits after performing a single check.
-*/
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+const wallet   = new ethers.Wallet(PRIVATE_KEY, provider);
+const game     = new ethers.Contract(FREAKY_ADDRESS, abi, wallet);
 
-require('dotenv').config();
-const { ethers } = require('ethers');
+const TZ = 'Australia/Sydney';
+const nowSydney = () =>
+  new Intl.DateTimeFormat('en-AU',{timeZone:TZ,hour12:false,weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date());
 
-const abi = require('./public/freakyFridayGameAbi.json');
-
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const signer   = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-const game     = new ethers.Contract(process.env.FREAKY_ADDRESS, abi, signer);
-
-const LOOP_SECONDS = Number(process.env.LOOP_SECONDS || 60);
-const ONE_SHOT = process.env.ONE_SHOT === 'true';
-
-async function checkRound() {
+async function checkOnce() {
   try {
-    const isActive = await game.isRoundActive();
-    if (!isActive) {
-      console.log('No active round to check.');
-      return;
-    }
-    const [start, duration] = await Promise.all([
-      game.roundStart(),
-      game.duration()
+    console.log(`[${nowSydney()}] \u23f3 Checking round…`);
+    const [active, start, duration] = await Promise.all([
+      game.isRoundActive(), game.roundStart(), game.duration()
     ]);
-    const now = Math.floor(Date.now() / 1000);
-    const expiry = Number(start) + Number(duration);
-    if (now < expiry) {
-      console.log('Not expired yet. Seconds remaining:', expiry - now);
-      return;
-    }
-    // Dry run to ensure the transaction will succeed
-    await game.checkTimeExpired.staticCall();
-    const tx = await game.checkTimeExpired();
-    await tx.wait();
-    console.log('✅ Round closed; tx hash:', tx.hash);
+    if (!active) { console.log('• No active round.'); return; }
+    const end = start + duration;
+    const now = BigInt(Math.floor(Date.now()/1000));
+    if (now < end) { console.log(`• Not expired. Ends=${end} now=${now}`); return; }
+
+    // Dry-run to avoid revert spam
+    try { await game.checkTimeExpired.staticCall(); }
+    catch (e) { console.log('• would revert:', e.message); return; }
+
+    const tx = await game.checkTimeExpired({ gasLimit: 800000 });
+    console.log('✅ sent:', tx.hash);
+    const rcpt = await tx.wait();
+    console.log('✅ confirmed block', rcpt.blockNumber);
   } catch (err) {
-    console.error('Error while checking round:', err.message || err);
+    console.error('⚠️ bot error:', err?.reason || err?.message || err);
   }
 }
 
-async function run() {
-  await checkRound();
-  if (!ONE_SHOT) {
-    setTimeout(run, LOOP_SECONDS * 1000);
-  }
+async function main() {
+  if (ONE_SHOT === 'true') { await checkOnce(); return; }
+  console.log(`ritual-bot started @ ${nowSydney()} (every ${LOOP_SECONDS}s, TZ=${TZ})`);
+  await checkOnce();
+  setInterval(checkOnce, Number(LOOP_SECONDS)*1000);
 }
-
-run();
+main().catch(e => { console.error('fatal:', e); process.exit(1); });

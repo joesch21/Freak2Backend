@@ -1,51 +1,32 @@
-/*
-  ritual-relayer.js
-
-  This Express server wraps calls to the on‑chain FreakyFridayAuto contract.  It
-  exposes endpoints for joining a round via the relayer, checking the current
-  round status, closing an expired round, and performing batch refunds on
-  behalf of participants.
-
-  To run the server:
-
-    $ npm install
-    $ cp .env.example .env  # fill in RPC_URL, PRIVATE_KEY, FREAKY_ADDRESS, GCC_ADDRESS
-    $ npm start
-
-  See README.md for endpoint documentation.
-*/
-
-require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
-const { ethers } = require('ethers');
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import { ethers } from 'ethers';
 
 const app = express();
-const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
-app.use(cors({ origin: allowedOrigin }));
+const ORIGIN = process.env.FRONTEND_URL;
+app.use(cors({
+  origin: ORIGIN,
+  methods: ['GET','POST','OPTIONS'],
+  credentials: false,
+}));
 app.use(express.json());
 
-// Load ABIs.  These are generated from the JSON files in ./public by build-abi.js.
-const gameAbi = require('./public/freakyFridayGameAbi.json');
-const erc20Abi = require('./public/erc20Abi.json');
+import gameAbi from './public/freakyFridayGameAbi.json' assert { type: 'json' };
+import erc20Abi from './public/erc20Abi.json' assert { type: 'json' };
 
-// Initialise provider and signer
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 const signer   = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-// Construct contract instances
 const gameAddress = process.env.FREAKY_ADDRESS;
 const tokenAddress = process.env.GCC_TOKEN || process.env.GCC_ADDRESS;
 const gameContract = new ethers.Contract(gameAddress, gameAbi, signer);
 const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, provider);
 
-// Utility: ensure an address is checksummed
 function normalizeAddress(addr) {
   try { return ethers.getAddress(addr); } catch (_) { return null; }
 }
 
-// GET /status
-// Returns current round state and configuration.
 app.get('/status', async (req, res) => {
   try {
     const [isActive, currentRound, roundStart, duration, entryAmount, roundMode, maxPlayers, participants] = await Promise.all([
@@ -54,7 +35,6 @@ app.get('/status', async (req, res) => {
       gameContract.roundStart(),
       gameContract.duration(),
       gameContract.entryAmount(),
-      // prefer explicit getter; fallback to public variable
       gameContract.getRoundMode ? gameContract.getRoundMode() : gameContract.roundMode(),
       gameContract.maxPlayers(),
       gameContract.getParticipants()
@@ -75,10 +55,6 @@ app.get('/status', async (req, res) => {
   }
 });
 
-// POST /relay-entry
-// Body: { user: "0x..." }
-// Registers a user for the current round.  Requires that the user has
-// approved the contract for at least entryAmount GCC.  The relayer pays gas.
 app.post('/relay-entry', async (req, res) => {
   try {
     const { user } = req.body;
@@ -86,7 +62,6 @@ app.post('/relay-entry', async (req, res) => {
     if (!addr) {
       return res.status(400).json({ error: 'Invalid user address' });
     }
-    // Check token allowance
     const [entryAmount, allowance] = await Promise.all([
       gameContract.entryAmount(),
       tokenContract.allowance(addr, gameAddress)
@@ -94,20 +69,15 @@ app.post('/relay-entry', async (req, res) => {
     if (allowance < entryAmount) {
       return res.status(400).json({ error: 'User allowance too low for entry' });
     }
-    // Call relayedEnter using the relayer signer
     const tx = await gameContract.relayedEnter(addr);
     await tx.wait();
     res.json({ success: true, txHash: tx.hash });
   } catch (err) {
-    // Extract revert reason if present
     let message = err?.error?.message || err?.message || String(err);
     res.status(500).json({ error: message });
   }
 });
 
-// POST /check-expired
-// Attempts to close the current round if duration has elapsed.  Anyone can call
-// this endpoint.  If the round is not active or not yet expired, returns an error.
 app.post('/check-expired', async (req, res) => {
   try {
     const [isActive, start, duration] = await Promise.all([
@@ -130,9 +100,6 @@ app.post('/check-expired', async (req, res) => {
   }
 });
 
-// POST /batch-refund
-// Body: { round: <number>, users: ["0x...", ...], maxCount?: <number> }
-// Allows the relayer to refund multiple users after a Standard round has closed.
 app.post('/batch-refund', async (req, res) => {
   try {
     const { round, users, maxCount } = req.body;
@@ -152,12 +119,10 @@ app.post('/batch-refund', async (req, res) => {
   }
 });
 
-// Fallback 404
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
-// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Freaks2 backend listening on port ${PORT}`);
