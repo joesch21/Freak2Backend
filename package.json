@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "description": "Backend for the Freaky Friday Freaks2 game.  This service exposes a small HTTP API that wraps calls to the on‑chain FreakyFridayAuto contract.",
   "main": "ritual-relayer.js",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "start": "node ritual-relayer.js",
     "build:abi": "node build-abi.js",
     "bot": "node ritual-bot.js",
+    "bot:once": "ONE_SHOT=true node ritual-bot.js",
     "scheduler": "node mode-scheduler.js"
   },
   "dependencies": {
