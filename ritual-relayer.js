@@ -55,13 +55,21 @@ app.get('/status', async (req, res) => {
   }
 });
 
-app.post('/relay-entry', async (req, res) => {
+// Both `/join` and `/relay-entry` paths register a player via the relayer.
+// Render will call this handler with CommonJS semantics unless the package
+// defines type:module.  The function validates that the caller has
+// approved enough GCC to the game contract before forwarding the call to
+// `relayedEnter(user)`.  Upon success, the backend returns the transaction
+// hash only (no extra metadata) so the frontend can link to BscScan.
+app.post(['/relay-entry', '/join'], async (req, res) => {
   try {
     const { user } = req.body;
     const addr = normalizeAddress(user);
     if (!addr) {
       return res.status(400).json({ error: 'Invalid user address' });
     }
+
+    // Ensure the user has approved at least the entry amount to the game contract.
     const [entryAmount, allowance] = await Promise.all([
       gameContract.entryAmount(),
       tokenContract.allowance(addr, gameAddress)
@@ -69,11 +77,14 @@ app.post('/relay-entry', async (req, res) => {
     if (allowance < entryAmount) {
       return res.status(400).json({ error: 'User allowance too low for entry' });
     }
+
+    // Relay the entry on behalf of the user.  The relayer wallet pays gas.
     const tx = await gameContract.relayedEnter(addr);
     await tx.wait();
-    res.json({ success: true, txHash: tx.hash });
+    // Respond with the transaction hash for UI feedback.
+    res.json({ txHash: tx.hash });
   } catch (err) {
-    let message = err?.error?.message || err?.message || String(err);
+    const message = err?.error?.message || err?.message || String(err);
     res.status(500).json({ error: message });
   }
 });
