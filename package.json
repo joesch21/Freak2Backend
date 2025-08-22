@@ -1,12 +1,13 @@
 {
   "name": "freaks2-backend",
   "version": "1.0.0",
-  "description": "Freaky Friday backend relayer",
   "type": "module",
   "engines": { "node": ">=20 <25" },
   "scripts": {
     "start": "node ritual-relayer.js",
-    "bot": "node ritual-bot.js"
+    "bot": "node ritual-bot.js",
+    "build:abi": "node build-abi.js",
+    "postinstall": "node build-abi.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

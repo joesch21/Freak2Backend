@@ -11,10 +11,9 @@ const abiFile = path.join(abiDir, "freakyFridayGameAbi.json");
 if (!fs.existsSync(abiDir)) fs.mkdirSync(abiDir, { recursive: true });
 
 if (fs.existsSync(abiFile)) {
-  console.log("ABI present:", abiFile);
+  console.log("✅ ABI present:", abiFile);
   process.exit(0);
 } else {
-  // If you want, you can write a minimal ABI or fail with a clear error.
-  console.error("ABI missing. Please place freakyFridayGameAbi.json in /public before deploy.");
+  console.error("❌ ABI missing. Please place freakyFridayGameAbi.json in /public before deploy.");
   process.exit(1);
 }
