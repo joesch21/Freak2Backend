@@ -11,8 +11,10 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": true,  "internalType": "address", "name": "winner", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "round",  "type": "uint256" }
+      { "indexed": true,  "internalType": "address", "name": "winner",               "type": "address" },
+      { "indexed": false, "internalType": "uint256", "name": "round",                "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "prizePaid",            "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "refundPerPlayerFinal", "type": "uint256" }
     ],
     "name": "RoundCompleted",
     "type": "event"
