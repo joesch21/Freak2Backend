@@ -1,13 +1,20 @@
-import fs from 'fs';
+// build-abi.js
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const files = [
-  { json: './public/freakyFridayGameAbi.json', out: './public/freakyFridayGameAbi.js' },
-  { json: './public/erc20Abi.json', out: './public/erc20Abi.js' }
-];
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const abiDir = path.join(__dirname, "public");
+const abiFile = path.join(abiDir, "freakyFridayGameAbi.json");
 
-for (const { json, out } of files) {
-  const abi = JSON.parse(fs.readFileSync(json, 'utf8'));
-  const js  = `export default ${JSON.stringify(abi, null, 2)};\n`;
-  fs.writeFileSync(out, js);
-  console.log('✅ Generated', out);
+if (!fs.existsSync(abiDir)) fs.mkdirSync(abiDir, { recursive: true });
+
+if (fs.existsSync(abiFile)) {
+  console.log("ABI present:", abiFile);
+  process.exit(0);
+} else {
+  // If you want, you can write a minimal ABI or fail with a clear error.
+  console.error("ABI missing. Please place freakyFridayGameAbi.json in /public before deploy.");
+  process.exit(1);
 }

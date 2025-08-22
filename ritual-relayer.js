@@ -21,18 +21,21 @@ app.use(
   })
 );
 
-// --- Resolve path to ABI JSON ---
+// --- Resolve path to ABI JSON (no JSON import assertions needed) ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const abiPath = path.join(__dirname, "public", "freakyFridayGameAbi.json");
 
-// Load ABI without JSON import assertions (Node 22/24 friendly)
+if (!fs.existsSync(abiPath)) {
+  console.error(`❌ ABI not found at ${abiPath}. Make sure the file exists or adjust build-abi.js.`);
+  process.exit(1);
+}
 const gameAbi = JSON.parse(fs.readFileSync(abiPath, "utf8"));
 
 // --- Env fallbacks (support both naming styles) ---
 const RPC_URL = process.env.RPC_URL || process.env.PROVIDER_URL;
 const PRIVATE_KEY = process.env.PRIVATE_KEY || process.env.RELAYER_KEY;
-const FREAKY_ADDRESS = process.env.FREAKY_ADDRESS || process.env.CONTRACT_ADDRESS;
+const FREAKY_ADDRESS = (process.env.FREAKY_ADDRESS || process.env.CONTRACT_ADDRESS || "").trim();
 
 if (!RPC_URL || !PRIVATE_KEY || !FREAKY_ADDRESS) {
   console.error(
@@ -40,6 +43,8 @@ if (!RPC_URL || !PRIVATE_KEY || !FREAKY_ADDRESS) {
   );
   process.exit(1);
 }
+
+console.log(`🔗 Using contract: ${FREAKY_ADDRESS}`);
 
 // --- Ethers setup ---
 const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -59,11 +64,6 @@ async function handleRelayEnter(req, res) {
     }
 
     console.log(`🚀 Relaying entry for ${user}`);
-
-    // Optional: sanity checks
-    // const feeData = await provider.getFeeData();
-    // console.log("feeData", feeData);
-
     const tx = await game.relayedEnter(user);
     const r = await tx.wait();
     console.log(`✅ relayedEnter mined: ${r?.hash || tx.hash}`);
