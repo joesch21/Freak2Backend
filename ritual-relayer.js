@@ -53,20 +53,23 @@ const game     = new ethers.Contract(FREAKY_ADDRESS, gameAbi, relayer);
 const ERC20_MIN_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address) view returns (uint256)",
-  "function decimals() view returns (uint8)"
+  "function decimals() view returns (uint8)",
+  "function transfer(address to, uint256 amount) returns (bool)"
 ];
 const gcc = new ethers.Contract(GCC_ADDRESS, ERC20_MIN_ABI, provider);
+const gccWrite = new ethers.Contract(GCC_ADDRESS, ERC20_MIN_ABI, relayer);
 
 app.get("/", (_req, res) => res.send("⚡ Freaky Friday Relayer is running"));
 
 async function loadState(user) {
-  const [dec, entry, bal, allow] = await Promise.all([
+  const [dec, entry, bal, allow, relBal] = await Promise.all([
     gcc.decimals(),
     game.entryAmount(),
     gcc.balanceOf(user),
-    gcc.allowance(user, await game.getAddress())
+    gcc.allowance(user, await game.getAddress()),
+    gcc.balanceOf(relayer.address)
   ]);
-  return { dec, entry, bal, allow };
+  return { dec, entry, bal, allow, relBal };
 }
 
 // Debug: show numbers
@@ -82,7 +85,8 @@ app.get("/debug-state", async (req, res) => {
       entryRaw: st.entry.toString(),
       entryHuman: ethers.formatUnits(st.entry, st.dec),
       balanceHuman: ethers.formatUnits(st.bal, st.dec),
-      allowanceHuman: ethers.formatUnits(st.allow, st.dec)
+      allowanceHuman: ethers.formatUnits(st.allow, st.dec),
+      relayerBalanceHuman: ethers.formatUnits(st.relBal, st.dec)
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -137,9 +141,10 @@ async function handleRelayEnter(req, res) {
     const entryH = ethers.formatUnits(st.entry, st.dec);
     const balH   = ethers.formatUnits(st.bal, st.dec);
     const alwH   = ethers.formatUnits(st.allow, st.dec);
+    const relH   = ethers.formatUnits(st.relBal, st.dec);
 
     console.log(`🔎 Preflight for ${user}`);
-    console.log(`   entry=${entryH} GCC, balance=${balH}, allowance=${alwH}`);
+    console.log(`   entry=${entryH} GCC, balance=${balH}, allowance=${alwH}, relayerBal=${relH}`);
 
     if (st.bal < st.entry) {
       return res.status(400).json({
@@ -151,6 +156,12 @@ async function handleRelayEnter(req, res) {
       return res.status(400).json({
         error: "INSUFFICIENT_ALLOWANCE",
         detail: `Approve at least ${entryH} GCC to spender=${await game.getAddress()}`
+      });
+    }
+    if (st.relBal < st.entry) {
+      return res.status(400).json({
+        error: "RELAYER_INSUFFICIENT_GCC",
+        detail: `Relayer has ${relH} GCC, needs ≥ ${entryH} for the refund`
       });
     }
 
@@ -174,7 +185,18 @@ async function handleRelayEnter(req, res) {
     const tx = await game.relayedEnter(user);
     const r  = await tx.wait();
     console.log(`✅ relayedEnter mined: ${r?.hash || tx.hash}`);
-    return res.json({ success: true, txHash: r?.hash || tx.hash });
+
+    // Send refund
+    console.log(`↩️  Refunding gross ${entryH} GCC to ${user}`);
+    const refundTx = await gccWrite.transfer(user, st.entry);
+    await refundTx.wait();
+    console.log(`✅ Refund transfer hash: ${refundTx.hash}`);
+
+    return res.json({
+      success: true,
+      enterTxHash: r?.hash || tx.hash,
+      refundTxHash: refundTx.hash
+    });
 
   } catch (err) {
     console.error("❌ Relay failed:", err);
