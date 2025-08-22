@@ -35,10 +35,14 @@ const gameAbi = JSON.parse(fs.readFileSync(abiPath, "utf8"));
 const RPC_URL        = process.env.RPC_URL        || process.env.PROVIDER_URL;
 const PRIVATE_KEY    = process.env.PRIVATE_KEY    || process.env.RELAYER_KEY;
 const FREAKY_ADDRESS = (process.env.FREAKY_ADDRESS || process.env.CONTRACT_ADDRESS || "").trim();
-const GCC_ADDRESSCFG = (process.env.GCC_ADDRESS   || "").trim(); // optional cross-check
+const GCC_ADDRESSCFG = (process.env.GCC_ADDRESS   || "").trim(); // REQUIRED now
 
 if (!RPC_URL || !PRIVATE_KEY || !FREAKY_ADDRESS) {
   console.error("❌ Missing env vars: RPC_URL, PRIVATE_KEY, FREAKY_ADDRESS (or PROVIDER_URL, RELAYER_KEY, CONTRACT_ADDRESS)");
+  process.exit(1);
+}
+if (!ethers.isAddress(GCC_ADDRESSCFG)) {
+  console.error("❌ Missing or invalid GCC_ADDRESS env var (must be the GCC token address)");
   process.exit(1);
 }
 
@@ -54,17 +58,19 @@ const ERC20_MIN_ABI = [
 
 app.get("/", (_req, res) => res.send("⚡ Freaky Friday Relayer is running"));
 
-// ---- State inspector ----
+// ---- State inspector (uses GCC_ADDRESS from env; no game.gcc() needed) ----
 async function inspectState(user) {
-  const gameAddr  = game.target;                         // ethers v6
-  const tokenAddr = await game.gcc();
-  const token     = new ethers.Contract(tokenAddr, ERC20_MIN_ABI, provider);
+  const gameAddr  = await game.getAddress(); // ethers v6
+  const tokenAddr = GCC_ADDRESSCFG;
+
+  const token = new ethers.Contract(tokenAddr, ERC20_MIN_ABI, provider);
   const [entry, dec, bal, allow] = await Promise.all([
     game.entryAmount(),
     token.decimals(),
     token.balanceOf(user),
     token.allowance(user, gameAddr),
   ]);
+
   return { gameAddr, tokenAddr, entry, dec, bal, allow };
 }
 
@@ -83,8 +89,7 @@ app.get("/debug-state", async (req, res) => {
       balanceRaw: st.bal.toString(),
       balanceHuman: ethers.formatUnits(st.bal, st.dec),
       allowanceRaw: st.allow.toString(),
-      allowanceHuman: ethers.formatUnits(st.allow, st.dec),
-      gccEnvMatch: GCC_ADDRESSCFG ? (GCC_ADDRESSCFG.toLowerCase() === st.tokenAddr.toLowerCase()) : "no-env"
+      allowanceHuman: ethers.formatUnits(st.allow, st.dec)
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -100,14 +105,6 @@ async function handleRelayEnter(req, res) {
     }
 
     const st = await inspectState(user);
-
-    // Optional token sanity: ensure on-chain GCC matches expected env
-    if (GCC_ADDRESSCFG && st.tokenAddr.toLowerCase() !== GCC_ADDRESSCFG.toLowerCase()) {
-      return res.status(500).json({
-        error: "GAME_TOKEN_MISMATCH",
-        detail: `game.gcc()=${st.tokenAddr}, expected GCC_ADDRESS=${GCC_ADDRESSCFG}`
-      });
-    }
 
     // Balance & allowance preflight (prevents vague on-chain revert)
     if (st.bal < st.entry) {
@@ -141,5 +138,5 @@ app.post("/join",        handleRelayEnter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Relayer listening on :${PORT} (contract: ${FREAKY_ADDRESS})`);
+  console.log(`✅ Relayer listening on :${PORT} (contract: ${FREAKY_ADDRESS}, token: ${GCC_ADDRESSCFG})`);
 });
