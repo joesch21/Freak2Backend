@@ -3,16 +3,15 @@
   "version": "1.0.0",
   "description": "Freaky Friday backend relayer",
   "type": "module",
-  "engines": { "node": ">=20 <26" },
+  "engines": { "node": ">=20 <25" },
   "scripts": {
     "start": "node ritual-relayer.js",
-    "bot": "node ritual-bot.js",
-    "build:abi": "node build-abi.js"
+    "bot": "node ritual-bot.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "ethers": "^6.7.0",
+    "ethers": "^6.15.0",
     "express": "^4.19.2"
   }
 }

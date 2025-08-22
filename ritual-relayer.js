@@ -24,11 +24,8 @@ app.use(
 // --- ABI load ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// load new ABI written by your revised contract
 const abiPath = path.join(__dirname, "public", "freakyFridayGameAbi.json");
-if (!fs.existsSync(abiPath)) {
-  console.error(`❌ ABI not found at ${abiPath}`);
-  process.exit(1);
-}
 const gameAbi = JSON.parse(fs.readFileSync(abiPath, "utf8"));
 
 // --- Env vars ---
@@ -57,19 +54,17 @@ const ERC20_MIN_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)"
 ];
 const gcc = new ethers.Contract(GCC_ADDRESS, ERC20_MIN_ABI, provider);
-const gccWrite = new ethers.Contract(GCC_ADDRESS, ERC20_MIN_ABI, relayer);
 
 app.get("/", (_req, res) => res.send("⚡ Freaky Friday Relayer is running"));
 
 async function loadState(user) {
-  const [dec, entry, bal, allow, relBal] = await Promise.all([
+  const [dec, entry, bal, allow] = await Promise.all([
     gcc.decimals(),
     game.entryAmount(),
     gcc.balanceOf(user),
-    gcc.allowance(user, await game.getAddress()),
-    gcc.balanceOf(relayer.address)
+    gcc.allowance(user, await game.getAddress())
   ]);
-  return { dec, entry, bal, allow, relBal };
+  return { dec, entry, bal, allow };
 }
 
 // Debug: show numbers
@@ -85,8 +80,7 @@ app.get("/debug-state", async (req, res) => {
       entryRaw: st.entry.toString(),
       entryHuman: ethers.formatUnits(st.entry, st.dec),
       balanceHuman: ethers.formatUnits(st.bal, st.dec),
-      allowanceHuman: ethers.formatUnits(st.allow, st.dec),
-      relayerBalanceHuman: ethers.formatUnits(st.relBal, st.dec)
+      allowanceHuman: ethers.formatUnits(st.allow, st.dec)
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -141,10 +135,9 @@ async function handleRelayEnter(req, res) {
     const entryH = ethers.formatUnits(st.entry, st.dec);
     const balH   = ethers.formatUnits(st.bal, st.dec);
     const alwH   = ethers.formatUnits(st.allow, st.dec);
-    const relH   = ethers.formatUnits(st.relBal, st.dec);
 
     console.log(`🔎 Preflight for ${user}`);
-    console.log(`   entry=${entryH} GCC, balance=${balH}, allowance=${alwH}, relayerBal=${relH}`);
+    console.log(`   entry=${entryH} GCC, balance=${balH}, allowance=${alwH}`);
 
     if (st.bal < st.entry) {
       return res.status(400).json({
@@ -158,13 +151,6 @@ async function handleRelayEnter(req, res) {
         detail: `Approve at least ${entryH} GCC to spender=${await game.getAddress()}`
       });
     }
-    if (st.relBal < st.entry) {
-      return res.status(400).json({
-        error: "RELAYER_INSUFFICIENT_GCC",
-        detail: `Relayer has ${relH} GCC, needs ≥ ${entryH} for the refund`
-      });
-    }
-
     // Try a dry-run first to surface revert reason clearly
     try {
       await provider.call({
@@ -186,16 +172,9 @@ async function handleRelayEnter(req, res) {
     const r  = await tx.wait();
     console.log(`✅ relayedEnter mined: ${r?.hash || tx.hash}`);
 
-    // Send refund
-    console.log(`↩️  Refunding gross ${entryH} GCC to ${user}`);
-    const refundTx = await gccWrite.transfer(user, st.entry);
-    await refundTx.wait();
-    console.log(`✅ Refund transfer hash: ${refundTx.hash}`);
-
     return res.json({
       success: true,
-      enterTxHash: r?.hash || tx.hash,
-      refundTxHash: refundTx.hash
+      enterTxHash: r?.hash || tx.hash
     });
 
   } catch (err) {
@@ -207,6 +186,32 @@ async function handleRelayEnter(req, res) {
 app.post("/relay-enter", handleRelayEnter);
 app.post("/relay-entry", handleRelayEnter);
 app.post("/join",        handleRelayEnter);
+
+// POST /close -> helper to close the round on-chain
+app.post("/close", async (_req, res) => {
+  try {
+    const tx = await game.checkTimeExpired();
+    const r  = await tx.wait();
+    res.json({ success: true, txHash: r?.hash || tx.hash });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// POST /batch-claim { round, users: [addr], maxCount }
+app.post("/batch-claim", async (req, res) => {
+  try {
+    const { round, users, maxCount = 50 } = req.body || {};
+    if (!Array.isArray(users) || typeof round !== "number") {
+      return res.status(400).json({ error: "BAD_REQUEST" });
+    }
+    const tx = await game.batchClaimRefunds(round, users, maxCount);
+    const r  = await tx.wait();
+    res.json({ success: true, txHash: r?.hash || tx.hash });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
