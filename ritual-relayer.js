@@ -21,7 +21,7 @@ app.use(
   })
 );
 
-// --- ABI load (no JSON import assertions) ---
+// --- ABI load ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const abiPath = path.join(__dirname, "public", "freakyFridayGameAbi.json");
@@ -31,18 +31,18 @@ if (!fs.existsSync(abiPath)) {
 }
 const gameAbi = JSON.parse(fs.readFileSync(abiPath, "utf8"));
 
-// --- Env vars (support both naming styles) ---
+// --- Env vars ---
 const RPC_URL        = process.env.RPC_URL        || process.env.PROVIDER_URL;
 const PRIVATE_KEY    = process.env.PRIVATE_KEY    || process.env.RELAYER_KEY;
 const FREAKY_ADDRESS = (process.env.FREAKY_ADDRESS || process.env.CONTRACT_ADDRESS || "").trim();
-const GCC_ADDRESSCFG = (process.env.GCC_ADDRESS   || "").trim(); // REQUIRED now
+const GCC_ADDRESS    = (process.env.GCC_ADDRESS   || "").trim();
 
 if (!RPC_URL || !PRIVATE_KEY || !FREAKY_ADDRESS) {
-  console.error("❌ Missing env vars: RPC_URL, PRIVATE_KEY, FREAKY_ADDRESS (or PROVIDER_URL, RELAYER_KEY, CONTRACT_ADDRESS)");
+  console.error("❌ Missing env vars: RPC_URL, PRIVATE_KEY, FREAKY_ADDRESS");
   process.exit(1);
 }
-if (!ethers.isAddress(GCC_ADDRESSCFG)) {
-  console.error("❌ Missing or invalid GCC_ADDRESS env var (must be the GCC token address)");
+if (!ethers.isAddress(GCC_ADDRESS)) {
+  console.error("❌ Missing/invalid GCC_ADDRESS");
   process.exit(1);
 }
 
@@ -55,40 +55,33 @@ const ERC20_MIN_ABI = [
   "function balanceOf(address) view returns (uint256)",
   "function decimals() view returns (uint8)"
 ];
+const gcc = new ethers.Contract(GCC_ADDRESS, ERC20_MIN_ABI, provider);
 
 app.get("/", (_req, res) => res.send("⚡ Freaky Friday Relayer is running"));
 
-// ---- State inspector (uses GCC_ADDRESS from env; no game.gcc() needed) ----
-async function inspectState(user) {
-  const gameAddr  = await game.getAddress(); // ethers v6
-  const tokenAddr = GCC_ADDRESSCFG;
-
-  const token = new ethers.Contract(tokenAddr, ERC20_MIN_ABI, provider);
-  const [entry, dec, bal, allow] = await Promise.all([
+async function loadState(user) {
+  const [dec, entry, bal, allow] = await Promise.all([
+    gcc.decimals(),
     game.entryAmount(),
-    token.decimals(),
-    token.balanceOf(user),
-    token.allowance(user, gameAddr),
+    gcc.balanceOf(user),
+    gcc.allowance(user, await game.getAddress())
   ]);
-
-  return { gameAddr, tokenAddr, entry, dec, bal, allow };
+  return { dec, entry, bal, allow };
 }
 
-// Optional public debug helper (disable if you prefer)
+// Debug: show numbers
 app.get("/debug-state", async (req, res) => {
   try {
     const { user } = req.query;
     if (!user || !ethers.isAddress(user)) return res.status(400).json({ error: "BAD_USER" });
-    const st = await inspectState(user);
+    const st = await loadState(user);
     res.json({
-      game: st.gameAddr,
-      token: st.tokenAddr,
+      game: await game.getAddress(),
+      token: GCC_ADDRESS,
       decimals: st.dec,
       entryRaw: st.entry.toString(),
       entryHuman: ethers.formatUnits(st.entry, st.dec),
-      balanceRaw: st.bal.toString(),
       balanceHuman: ethers.formatUnits(st.bal, st.dec),
-      allowanceRaw: st.allow.toString(),
       allowanceHuman: ethers.formatUnits(st.allow, st.dec)
     });
   } catch (e) {
@@ -96,7 +89,43 @@ app.get("/debug-state", async (req, res) => {
   }
 });
 
-// ---- Unified relay handler ----
+// Dry-run: simulate revert reason (no gas spent)
+app.get("/dry-run", async (req, res) => {
+  try {
+    const { user } = req.query;
+    if (!user || !ethers.isAddress(user)) return res.status(400).json({ error: "BAD_USER" });
+
+    // Encode call data for relayedEnter(user)
+    const iface = new ethers.Interface(gameAbi);
+    const data  = iface.encodeFunctionData("relayedEnter", [user]);
+    const call  = {
+      to: await game.getAddress(),
+      from: relayer.address, // who would send it
+      data
+    };
+
+    // provider.call returns revert data without sending a tx
+    try {
+      const ret = await provider.call(call);
+      return res.json({ ok: true, ret });
+    } catch (err) {
+      // Decode standard Error(string)
+      let decoded;
+      try {
+        decoded = iface.parseError(err?.data || err?.error?.data);
+      } catch {}
+      return res.status(200).json({
+        ok: false,
+        reason: err?.reason || decoded?.name || "reverted",
+        data: (err?.data || err?.error?.data || "").toString()
+      });
+    }
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Relay with preflight + rich logging
 async function handleRelayEnter(req, res) {
   try {
     const { user } = req.body || {};
@@ -104,19 +133,40 @@ async function handleRelayEnter(req, res) {
       return res.status(400).json({ error: "BAD_REQUEST", detail: "Missing or invalid 'user' address" });
     }
 
-    const st = await inspectState(user);
+    const st = await loadState(user);
+    const entryH = ethers.formatUnits(st.entry, st.dec);
+    const balH   = ethers.formatUnits(st.bal, st.dec);
+    const alwH   = ethers.formatUnits(st.allow, st.dec);
 
-    // Balance & allowance preflight (prevents vague on-chain revert)
+    console.log(`🔎 Preflight for ${user}`);
+    console.log(`   entry=${entryH} GCC, balance=${balH}, allowance=${alwH}`);
+
     if (st.bal < st.entry) {
       return res.status(400).json({
         error: "INSUFFICIENT_BALANCE",
-        detail: `User has ${ethers.formatUnits(st.bal, st.dec)} GCC, needs ${ethers.formatUnits(st.entry, st.dec)}`
+        detail: `User has ${balH} GCC, needs ${entryH}`
       });
     }
     if (st.allow < st.entry) {
       return res.status(400).json({
         error: "INSUFFICIENT_ALLOWANCE",
-        detail: `Approve at least ${ethers.formatUnits(st.entry, st.dec)} GCC to spender=${st.gameAddr}`
+        detail: `Approve at least ${entryH} GCC to spender=${await game.getAddress()}`
+      });
+    }
+
+    // Try a dry-run first to surface revert reason clearly
+    try {
+      await provider.call({
+        to: await game.getAddress(),
+        from: relayer.address,
+        data: new ethers.Interface(gameAbi).encodeFunctionData("relayedEnter", [user])
+      });
+    } catch (err) {
+      console.error("🧪 Dry-run revert:", err?.reason || err?.message || err);
+      return res.status(500).json({
+        error: "DRY_RUN_REVERT",
+        reason: err?.reason || "execution reverted",
+        data: (err?.data || err?.error?.data || "").toString()
       });
     }
 
@@ -136,7 +186,7 @@ app.post("/relay-enter", handleRelayEnter);
 app.post("/relay-entry", handleRelayEnter);
 app.post("/join",        handleRelayEnter);
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`✅ Relayer listening on :${PORT} (contract: ${FREAKY_ADDRESS}, token: ${GCC_ADDRESSCFG})`);
+  console.log(`✅ Relayer listening on :${PORT} (contract: ${FREAKY_ADDRESS}, token: ${GCC_ADDRESS})`);
 });
