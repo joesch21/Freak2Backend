@@ -14,6 +14,6 @@ if (fs.existsSync(abiFile)) {
   console.log("✅ ABI present:", abiFile);
   process.exit(0);
 } else {
-  console.error("❌ ABI missing. Please place freakyFridayGameAbi.json in /public before deploy.");
+  console.error("❌ ABI missing. Place freakyFridayGameAbi.json in /public before deploy.");
   process.exit(1);
 }
