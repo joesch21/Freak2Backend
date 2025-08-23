@@ -1,11 +1,10 @@
 {
   "name": "freaks2-backend",
   "version": "1.0.0",
-  "engines": { "node": ">=20 <25" },
+  "type": "module",
   "scripts": {
     "start": "node ritual-relayer.js",
-    "bot": "node ritual-bot.js",
-    "build:abi": "node build-abi.js"
+    "bot": "node ritual-bot.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -13,5 +12,8 @@
     "luxon": "3.7.1",
     "node-cron": "3.0.3",
     "uuid": "8.3.2"
+  },
+  "engines": {
+    "node": ">=18 <21"
   }
 }

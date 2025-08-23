@@ -1,51 +1,15 @@
-require('dotenv').config();
-const cron = require('node-cron');
-const { DateTime } = require('luxon');
-const {
-  isRoundActive,
-  roundStart,
-  duration,
-  checkTimeExpired,
-  setRoundMode,
-} = require('./ritual-relayer');
+import 'dotenv/config';
+import cron from 'node-cron';
+import { exec } from 'node:child_process';
 
-function isFridaySydney() {
-  return DateTime.now().setZone('Australia/Sydney').weekday === 5;
-}
+// Default: every 15 minutes so you don’t miss short rounds
+const schedule = process.env.CRON_SCHEDULE || '*/15 * * * *';
 
-async function tryCloseRound() {
-  try {
-    const active = await isRoundActive();
-    if (!active) return;
-    const [start, dur] = await Promise.all([roundStart(), duration()]);
-    const now = Math.floor(Date.now() / 1000);
-    if (now >= Number(start) + Number(dur)) {
-      console.log('Closing round…');
-      const tx = await checkTimeExpired();
-      console.log(`Close tx: ${tx.hash}`);
-      await tx.wait();
-    }
-  } catch (err) {
-    console.error('tryCloseRound error:', err.shortMessage || err.message || err);
-  }
-}
-
-async function flipModeIfIdle() {
-  try {
-    const active = await isRoundActive();
-    if (active) return;
-    const mode = isFridaySydney() ? 1 : 0; // 1=Jackpot, 0=Standard
-    const tx = await setRoundMode(mode);
-    console.log(`Switching mode to ${mode === 1 ? 'Jackpot' : 'Standard'}, tx: ${tx.hash}`);
-    await tx.wait();
-  } catch (err) {
-    console.error('flipModeIfIdle error:', err.shortMessage || err.message || err);
-  }
-}
-
-cron.schedule('* * * * *', async () => {
-  await flipModeIfIdle();
-  await tryCloseRound();
+console.log('Cron schedule:', schedule);
+cron.schedule(schedule, () => {
+  exec('node ritual-relayer.js', (err, stdout, stderr) => {
+    if (stdout) console.log(stdout);
+    if (stderr) console.error(stderr);
+    if (err) console.error(err);
+  });
 });
-
-console.log('Ritual bot started.');
