@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import fs from "fs";
 
 const RPC_URL = process.env.RPC_URL || "https://bsc-dataseed.binance.org/";
-const GAME = "0x2608f724dec63dEa893BC5380FF0e77E5C446480";
+const GAME = "0x2a37F0325bcA2B71cF7f2189796Fb9BC1dEBc9C9";
 const ABI = JSON.parse(fs.readFileSync("./public/freakyFridayGameAbi.json", "utf8"));
 
 const erc20Min = [

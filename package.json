@@ -4,7 +4,7 @@
   "type": "module",
   "engines": { "node": ">=20 <25" },
   "scripts": {
-    "start": "node ritual-relayer.js",
+    "start": "node server.js",
     "bot": "node ritual-bot.js",
     "build:abi": "node build-abi.js",
     "postinstall": "node build-abi.js"

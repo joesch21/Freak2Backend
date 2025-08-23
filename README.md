@@ -22,6 +22,8 @@ GCC_ADDRESS=              # GCC token address
 FRONTEND_URL=             # Allowed CORS origin for your front‑end (optional)
 TIMEZONE=Australia/Sydney # Timezone used by the mode scheduler
 CLOSE_TIP=0.1             # Optional tip (in GCC) paid from surplus on round close
+CHECK_INTERVAL_SEC=30     # How often the bot checks for round expiry
+MIN_GAS_BNB=0.005         # Warn if relayer BNB falls below this amount
 ```
 
 Install dependencies:
