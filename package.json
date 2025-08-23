@@ -4,16 +4,15 @@
   "type": "module",
   "scripts": {
     "start": "node ritual-relayer.js",
-    "bot": "node ritual-bot.js"
+    "bot": "node ritual-relayer.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "ethers": "^6.13.0",
-    "luxon": "3.7.1",
-    "node-cron": "3.0.3",
-    "uuid": "8.3.2"
+    "ethers": "^6.12.0",
+    "luxon": "^3.7.1",
+    "node-cron": "^3.0.3"
   },
   "engines": {
-    "node": ">=18 <21"
+    "node": ">=20 <25"
   }
 }
