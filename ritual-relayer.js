@@ -1,6 +1,10 @@
-import 'dotenv/config';
-import { ethers } from 'ethers';
-import gameAbi from './public/freakyFridayGameAbi.json' assert { type: 'json' };
+require('dotenv').config();
+const { ethers } = require('ethers');
+const fs = require('fs');
+const path = require('path');
+
+const abiPath = path.join(__dirname, 'public', 'freakyFridayGameAbi.json');
+const gameAbi = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
 
 const {
   RPC_URL,
@@ -30,39 +34,59 @@ async function logInsufficientFunds(err) {
   }
 }
 
-export async function closeRoundIfExpired() {
+async function getParticipants() {
+  return await game.getParticipants();
+}
+
+async function isRoundActive() {
+  return await game.isRoundActive();
+}
+
+async function roundStart() {
+  return await game.roundStart();
+}
+
+async function duration() {
+  return await game.duration();
+}
+
+async function checkTimeExpired() {
+  return await game.checkTimeExpired({ value: CLOSE_TIP });
+}
+
+async function setRoundMode(mode) {
+  return await game.setRoundMode(mode);
+}
+
+async function closeRoundIfExpired() {
   try {
-    const [active, start, duration] = await Promise.all([
-      game.isRoundActive(),
-      game.roundStart(),
-      game.duration(),
+    const [active, start, dur] = await Promise.all([
+      isRoundActive(),
+      roundStart(),
+      duration(),
     ]);
-    console.log(`isRoundActive=${active} roundStart=${start} duration=${duration}`);
+    console.log(`isRoundActive=${active} roundStart=${start} duration=${dur}`);
     const now = Math.floor(Date.now() / 1000);
-    if (active && now >= Number(start) + Number(duration)) {
+    if (active && now >= Number(start) + Number(dur)) {
       console.log('Closing round…');
-      const tx = await game.checkTimeExpired({ value: CLOSE_TIP });
+      const tx = await checkTimeExpired();
       console.log(`Close tx: ${tx.hash}`);
       await tx.wait();
     }
   } catch (err) {
     await logInsufficientFunds(err);
     console.error('closeRoundIfExpired error:', err.shortMessage || err.message || err);
-    await new Promise((r) => setTimeout(r, 5000));
   }
 }
 
-(async () => {
-  try {
-    const net = await provider.getNetwork();
-    console.log(`Connected to chain ${net.chainId} contract ${CONTRACT}`);
-  } catch (err) {
-    console.error('Network error:', err.message || err);
-    process.exit(1);
-  }
-
-  while (true) {
-    await closeRoundIfExpired();
-    await new Promise((r) => setTimeout(r, 30000));
-  }
-})();
+module.exports = {
+  provider,
+  signer,
+  getParticipants,
+  isRoundActive,
+  roundStart,
+  duration,
+  checkTimeExpired,
+  setRoundMode,
+  closeRoundIfExpired,
+};
