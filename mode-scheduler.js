@@ -1,42 +1,46 @@
 import 'dotenv/config';
-import cron from 'node-cron';
 import { DateTime } from 'luxon';
 import { ethers } from 'ethers';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const abi = JSON.parse(fs.readFileSync(path.join(__dirname, './public/freakyFridayGameAbi.json'), 'utf8'));
+import gameAbi from './public/freakyFridayGameAbi.json' assert { type: 'json' };
 
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const signer   = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-const game     = new ethers.Contract(process.env.FREAKY_ADDRESS, abi, signer);
+const { RPC_URL, PRIVATE_KEY, FREAKY_CONTRACT, FREAKY_ADDRESS } = process.env;
+const CONTRACT = (FREAKY_ADDRESS || FREAKY_CONTRACT || '0x2a37F0325bcA2B71cF7f2189796Fb9BC1dEBc9C9').trim();
 
-const PrizeMode = { Standard: 0, Jackpot: 1 };
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+const signer   = new ethers.Wallet(PRIVATE_KEY, provider);
+const game     = new ethers.Contract(CONTRACT, gameAbi, signer);
 
-async function flipModeIfNeeded() {
+export default async function switchMode(target) {
   try {
     const active = await game.isRoundActive();
-    if (active) return;
-    const tz = process.env.TIMEZONE || 'Australia/Sydney';
-    const now = DateTime.now().setZone(tz);
-    const isFriday = now.weekday === 5;
-    const desired = isFriday ? PrizeMode.Jackpot : PrizeMode.Standard;
-    const current = await (game.getRoundMode ? game.getRoundMode() : game.roundMode());
-    if (Number(current) !== desired) {
-      const tx = await game.setRoundMode(desired);
-      await tx.wait();
-      console.log(`[${now.toISO()}] Mode switched to ${isFriday ? 'Jackpot' : 'Standard'} (tx: ${tx.hash})`);
+    if (active) {
+      console.log('Round active, skipping mode switch');
+      return;
     }
+
+    let desired = target;
+    if (!desired) {
+      const tz = process.env.TIMEZONE || 'Australia/Sydney';
+      const now = DateTime.now().setZone(tz);
+      desired = now.weekday === 5 ? 'Jackpot' : 'Standard';
+    }
+
+    if (!game.setRoundMode) {
+      console.log('Contract lacks setRoundMode');
+      return;
+    }
+
+    const modeVal = desired === 'Jackpot' ? 1 : 0;
+    const current = await (game.getRoundMode ? game.getRoundMode() : game.roundMode());
+    if (Number(current) === modeVal) {
+      console.log(`Mode already ${desired}`);
+      return;
+    }
+
+    const tx = await game.setRoundMode(modeVal);
+    console.log(`Switching mode to ${desired}, tx: ${tx.hash}`);
+    await tx.wait();
   } catch (err) {
-    console.error('mode-scheduler error:', err.message || err);
+    console.error('mode switch error:', err.reason || err.message || err);
   }
 }
-
-cron.schedule('0 * * * *', flipModeIfNeeded, {
-  timezone: process.env.TIMEZONE || 'Australia/Sydney'
-});
-
-console.log('Mode scheduler started.  Checking prize mode hourly…');
-flipModeIfNeeded();

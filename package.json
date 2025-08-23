@@ -1,18 +1,19 @@
 {
   "name": "freaks2-backend",
   "version": "1.0.0",
-  "main": "server.js",
-  "type": "commonjs",
+  "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "build:abi": "node build-abi.js",
+    "start": "node ritual-relayer.js",
+    "bot": "node ritual-bot.js",
+    "mode:switch": "node mode-scheduler.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "ethers": "^6.11.1",
-    "express": "^4.19.2",
-    "luxon": "^3.5.0",
-    "node-cron": "^3.0.3"
+    "ethers": "^6.13.0",
+    "luxon": "3.7.1",
+    "node-cron": "3.0.3",
+    "uuid": "8.3.2"
   }
 }
