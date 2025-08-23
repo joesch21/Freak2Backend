@@ -1,7 +1,11 @@
-import 'dotenv/config';
-import { DateTime } from 'luxon';
-import { ethers } from 'ethers';
-import gameAbi from './public/freakyFridayGameAbi.json' assert { type: 'json' };
+require('dotenv').config();
+const { DateTime } = require('luxon');
+const { ethers } = require('ethers');
+const fs = require('fs');
+const path = require('path');
+
+const abiPath = path.join(__dirname, 'public', 'freakyFridayGameAbi.json');
+const gameAbi = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
 
 const { RPC_URL, PRIVATE_KEY, FREAKY_CONTRACT, FREAKY_ADDRESS } = process.env;
 const CONTRACT = (FREAKY_ADDRESS || FREAKY_CONTRACT || '0x2a37F0325bcA2B71cF7f2189796Fb9BC1dEBc9C9').trim();
@@ -10,7 +14,7 @@ const provider = new ethers.JsonRpcProvider(RPC_URL);
 const signer   = new ethers.Wallet(PRIVATE_KEY, provider);
 const game     = new ethers.Contract(CONTRACT, gameAbi, signer);
 
-export default async function switchMode(target) {
+async function switchMode(target) {
   try {
     const active = await game.isRoundActive();
     if (active) {
@@ -44,3 +48,5 @@ export default async function switchMode(target) {
     console.error('mode switch error:', err.reason || err.message || err);
   }
 }
+
+module.exports = switchMode;

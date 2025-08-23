@@ -1,13 +1,11 @@
 {
   "name": "freaks2-backend",
   "version": "1.0.0",
-  "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=20 <25" },
   "scripts": {
-    "build:abi": "node build-abi.js",
     "start": "node ritual-relayer.js",
     "bot": "node ritual-bot.js",
-    "mode:switch": "node mode-scheduler.js"
+    "build:abi": "node build-abi.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
