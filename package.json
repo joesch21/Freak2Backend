@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "bot": "node cron-close-and-arm.js",
+    "bot": "node ritual-relayer.js",
     "bot:friOn": "node cron-set-mode.js on",
     "bot:friOff": "node cron-set-mode.js off"
   },
